@@ -1,0 +1,240 @@
+options {
+  IGNORE_CASE = false;
+  STATIC = false;
+}
+
+PARSER_BEGIN(JERCompiler)
+
+public class JERCompiler {
+  public static void main(String args[]) {
+    try {
+      System.out.println("Iniciando compilador JER...");
+      System.out.println("Escribe el codigo a analizar (Presiona Ctrl+D / Ctrl+Z para finalizar):");
+      JERCompiler parser = new JERCompiler(System.in);
+      parser.Programa();
+      System.out.println("\n[EXITO] Analisis lexico y sintactico finalizado sin errores.");
+    } catch (ParseException e) {
+      System.out.println("\n[ERROR SINTACTICO]: " + e.getMessage());
+    } catch (TokenMgrError e) {
+      System.out.println("\n[ERROR LEXICO]: " + e.getMessage());
+    }
+  }
+}
+
+PARSER_END(JERCompiler)
+
+/* =========================================
+   ANALIZADOR LEXICO (TOKEN MANAGER)
+   ========================================= */
+
+// 1. ESPACIOS EN BLANCO Y SALTOS DE LÍNEA
+SKIP : {
+  " " | "\t" | "\r" | "\n"
+}
+
+// 2. COMENTARIOS
+SKIP : {
+  < COMENTARIO_LINEA: "#" (~["\n", "\r"])* ("\n" | "\r" | "\r\n")? >
+}
+
+// Manejo seguro para comentario multilínea
+SKIP : {
+  "/**" : ESTADO_COMENTARIO
+}
+<ESTADO_COMENTARIO> SKIP : {
+  "**/" : DEFAULT
+| < ~[] >
+}
+
+// 3. PALABRAS RESERVADAS (Tipos de datos, estructuras, ESP32)
+TOKEN : {
+  < TIPO_ENT: "ENT" > | < TIPO_DEC: "DEC" > | < TIPO_CAD: "CAD" >
+| < TIPO_CAR: "CAR" > | < TIPO_MAT: "MAT" > | < TIPO_VEC: "VEC" > | < TIPO_BOO: "BOO" >
+| < OBT: "OBT" > | < IMP: "IMP" > | < REPETIR: "REPETIR" > | < MIENTRAS: "MIENTRAS" >
+| < SI: "SI" > | < SINO: "SINO" > | < FUN: "FUN" > | < EVALUAR: "EVALUAR" >
+| < CUANDO: "CUANDO" > | < TERMINAR: "TERMINAR" > | < PRED: "PRED" > | < RET: "RET" >
+| < PIN: "PIN" > | < SALIDA: "SALIDA" > | < ENTRADA: "ENTRADA" >
+| < ENTRADA_UP: "ENTRADA_UP" > | < ANALOGO: "ANALOGO" > | < PWM: "PWM" >
+| < ENCENDER: "ENCENDER" > | < APAGAR: "APAGAR" > | < LEER: "LEER" >
+| < LEER_A: "LEER_A" > | < DEBER: "DEBER" > | < COMO: "COMO" >
+| < ESPERAR: "ESPERAR" > | < INICIO: "INICIO" > | < BUCLE: "BUCLE" >
+}
+
+// 4. LITERALES
+TOKEN : {
+  < NUMERO_ENTERO: (["0"-"9"])+ >
+| < NUMERO_DECIMAL: (["0"-"9"])+ "." (["0"-"9"])+ >
+| < CADENA: "\"" (~["\""])* "\"" >
+| < CARACTER: "'" (~["'"]) "'" >
+| < VERDADERO: "VERDADERO" >
+| < FALSO: "FALSO" >
+}
+
+// 5. OPERADORES
+TOKEN : {
+  < ASIG_INC: "+->" > | < ASIG_DEC: "-->" > | < ASIGNACION: "->" >
+| < POTENCIA: "**" > | < RAIZ: "//" > | < INC: "++" > | < DEC: "--" >
+| < SUMA: "+" > | < RESTA: "-" > | < MULT: "*" > | < DIV: "/" > | < MODULO: "%" >
+| < MAYOR_IGUAL: ">=" > | < MENOR_IGUAL: "<=" > | < DIFERENTE: "!=" >
+| < IGUAL: "=" > | < MAYOR_QUE: ">" > | < MENOR_QUE: "<" >
+| < AND: "AND" > | < OR: "OR" > | < NOT: "NOT" >
+}
+
+// 6. SIGNOS DE PUNTUACIÓN
+TOKEN : {
+  < APERTURA_PAREN: "(" > | < CIERRE_PAREN: ")" >
+| < APERTURA_BLOQUE: "{" > | < CIERRE_BLOQUE: "}" >
+| < APERTURA_CORCHETE: "[" > | < CIERRE_CORCHETE: "]" >
+| < FIN_INSTRUCCION: ";" > | < SEPARADOR: "," > | < PUNTO: "." >
+}
+
+// 7. IDENTIFICADORES
+TOKEN : {
+  < IDENTIFICADOR: ["a"-"z", "A"-"Z"] ( ["a"-"z", "A"-"Z", "0"-"9", "_"] )* >
+}
+
+
+/* =========================================
+   ANALIZADOR SINTACTICO (PARSER)
+   ========================================= */
+
+// --- ESTRUCTURA GENERAL DEL PROGRAMA ---
+void Programa() :
+{}
+{
+  ( DeclaracionGlobal() )*
+  ( BloqueInicio() )?
+  ( BloqueBucle() )?
+  <EOF>
+}
+
+void DeclaracionGlobal() :
+{}
+{
+    DeclaracionPin() <FIN_INSTRUCCION>
+  | DeclaracionVariable() <FIN_INSTRUCCION>
+}
+
+// --- DECLARACIONES ---
+void DeclaracionPin() :
+{}
+{
+  <PIN> <IDENTIFICADOR> <COMO> ModoPin() <ASIGNACION> <NUMERO_ENTERO>
+}
+
+void ModoPin() :
+{}
+{
+  <SALIDA> | <ENTRADA> | <ENTRADA_UP> | <ANALOGO> | <PWM>
+}
+
+void DeclaracionVariable() :
+{}
+{
+  TipoDato() <IDENTIFICADOR> <ASIGNACION> Expresion()
+}
+
+void TipoDato() :
+{}
+{
+  <TIPO_ENT> | <TIPO_DEC> | <TIPO_CAD> | <TIPO_CAR> | <TIPO_MAT> | <TIPO_VEC> | <TIPO_BOO>
+}
+
+// --- BLOQUES PRINCIPALES ESP32 ---
+void BloqueInicio() :
+{}
+{
+  <INICIO> <APERTURA_BLOQUE>
+    ( Sentencia() )*
+  <CIERRE_BLOQUE>
+}
+
+void BloqueBucle() :
+{}
+{
+  <BUCLE> <APERTURA_BLOQUE>
+    ( Sentencia() )*
+  <CIERRE_BLOQUE>
+}
+
+// --- SENTENCIAS DENTRO DE LOS BLOQUES ---
+void Sentencia() :
+{}
+{
+    DeclaracionVariable() <FIN_INSTRUCCION>
+  | LOOKAHEAD(2) AsignacionVariable() <FIN_INSTRUCCION>
+  | InstruccionESP32() <FIN_INSTRUCCION>
+  | EstructuraSi()
+  | EstructuraImprimir() <FIN_INSTRUCCION>
+}
+
+void AsignacionVariable() :
+{}
+{
+  <IDENTIFICADOR> ( <ASIGNACION> | <ASIG_INC> | <ASIG_DEC> ) Expresion()
+}
+
+// --- INSTRUCCIONES ESPECÍFICAS DEL MICROCONTROLADOR ---
+void InstruccionESP32() :
+{}
+{
+    <ENCENDER> <IDENTIFICADOR>
+  | <APAGAR> <IDENTIFICADOR>
+  | <ESPERAR> <NUMERO_ENTERO>
+  | <DEBER> <IDENTIFICADOR> <SEPARADOR> Expresion()
+}
+
+void EstructuraImprimir() :
+{}
+{
+  <IMP> Expresion()
+}
+
+// --- ESTRUCTURAS DE CONTROL ---
+void EstructuraSi() :
+{}
+{
+  <SI> Condicion() <APERTURA_BLOQUE>
+    ( Sentencia() )*
+  <CIERRE_BLOQUE>
+  ( <SINO> <APERTURA_BLOQUE> ( Sentencia() )* <CIERRE_BLOQUE> )?
+}
+
+void Condicion() :
+{}
+{
+  Expresion() OperadorRelacional() Expresion()
+}
+
+void OperadorRelacional() :
+{}
+{
+  <IGUAL> | <MAYOR_QUE> | <MENOR_QUE> | <MAYOR_IGUAL> | <MENOR_IGUAL> | <DIFERENTE>
+}
+
+// --- EXPRESIONES (Valores, Operaciones, Lecturas) ---
+void Expresion() :
+{}
+{
+    ValorSimple() ( OperadorAritmetico() ValorSimple() )*
+  | LecturaESP32()
+}
+
+void ValorSimple() :
+{}
+{
+    <NUMERO_ENTERO> | <NUMERO_DECIMAL> | <CADENA> | <CARACTER> 
+  | <VERDADERO> | <FALSO> | <IDENTIFICADOR>
+}
+
+void OperadorAritmetico() :
+{}
+{
+  <SUMA> | <RESTA> | <MULT> | <DIV> | <MODULO> | <POTENCIA> | <RAIZ>
+}
+
+void LecturaESP32() :
+{}
+{
+  ( <LEER> | <LEER_A> ) <IDENTIFICADOR>
+}
